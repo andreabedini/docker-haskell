@@ -1,0 +1,72 @@
+name: Build images
+
+on:
+  - workflow_dispatch
+  - push
+
+jobs:
+  build-smoke-test:
+    runs-on: ubuntu-latest
+    name: ${{ matrix.base }} / ${{ matrix.ghc-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        base:
+          - fedora
+          - ubuntu
+          - alpine
+        ghc-version:
+          - 9.10.1
+          - 9.8.2
+          - 9.6.6
+        hls-version:
+          - latest
+        cabal-version:
+          - latest
+        stack-version:
+          - latest
+
+    env:
+      PREFIX: /opt
+
+    steps:
+      - run: echo CONTAINER=$(buildah from ${{ matrix.base }}) >> $GITHUB_ENV
+
+      - if: ${{ matrix.base == 'ubuntu' }}
+        run: buildah run --user root:root $CONTAINER -- sh -c "apt update && apt install -y curl"
+
+      - if: ${{ matrix.base == 'alpine' }}
+        run: buildah run --user root:root $CONTAINER -- sh -c "apk add curl"
+
+      - run: |
+          buildah add --chmod 0444 $CONTAINER https://get-ghcup.haskell.org /tmp/get-ghcup
+          buildah run --user root:root -e BOOTSTRAP_HASKELL_NONINTERACTIVE=1 -e BOOTSTRAP_HASKELL_MINIMAL=1 -e BOOTSTRAP_HASKELL_VERBOSE=1 -e GHCUP_INSTALL_BASE_PREFIX=/tmp "$CONTAINER" -- sh /tmp/get-ghcup
+
+      - run: echo REQUIREMENTS=$(buildah run $CONTAINER /tmp/.ghcup/bin/ghcup tool-requirements -r) >> $GITHUB_ENV
+
+      - if: ${{ matrix.base == 'fedora' }}
+        run: buildah run --user root:root $CONTAINER -- sh -c "dnf install -y $REQUIREMENTS"
+
+      - if: ${{ matrix.base == 'ubuntu' }}
+        run: buildah run --user root:root $CONTAINER -- sh -c "apt install -y $REQUIREMENTS"
+
+      - if: ${{ matrix.base == 'alpine' }}
+        run: buildah run --user root:root $CONTAINER -- sh -c "apk add $REQUIREMENTS"
+
+      - run: buildah run --user root:root "$CONTAINER" -- /tmp/.ghcup/bin/ghcup install ghc ${{ matrix.ghc-version }} --isolate "$PREFIX/ghc"
+      - run: buildah run --user root:root "$CONTAINER" -- /tmp/.ghcup/bin/ghcup install hls ${{ matrix.hls-version }} --isolate "$PREFIX/hls"
+      - run: buildah run --user root:root "$CONTAINER" -- /tmp/.ghcup/bin/ghcup install cabal ${{ matrix.cabal-version }} --isolate "$PREFIX/cabal"
+      - run: buildah run --user root:root "$CONTAINER" -- /tmp/.ghcup/bin/ghcup install stack ${{ matrix.stack-version }} --isolate "$PREFIX/stack"
+
+      - run: |
+          OLDPATH=$(buildah run "$CONTAINER" -- echo \$PATH)
+          NEWPATH="/opt/ghc/bin:/opt/hls/bin:/opt/cabal:/opt/stack:$OLDPATH"
+          buildah config --env PATH="$NEWPATH" "$CONTAINER"
+
+      - run: |
+          buildah run "$CONTAINER" -- stack config set system-ghc --global true
+          buildah run "$CONTAINER" -- stack config set install-ghc --global false
+
+      - run: |
+          buildah run --user root:root "$CONTAINER" -- rm -rf /root/.ghcup
+          buildah commit --rm "$CONTAINER" haskell:${{ matrix.base }}-ghc-${{ matrix.ghc-version }}
