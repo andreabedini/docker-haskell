@@ -57,12 +57,17 @@ jobs:
       - run: buildah run --user root:root "$CONTAINER" -- /tmp/.ghcup/bin/ghcup install cabal ${{ matrix.cabal-version }} --isolate "$PREFIX/cabal"
       - run: buildah run --user root:root "$CONTAINER" -- /tmp/.ghcup/bin/ghcup install stack ${{ matrix.stack-version }} --isolate "$PREFIX/stack"
 
-      - shell: buildah add $CONTAINER {0} /etc/environment.d/ghcup.conf
-        run: PATH=/opt/ghc/bin:/opt/hls/bin:/opt/cabal:/opt/stack${PATH:+:$PATH}
+      - run: |
+          buildah run --user root:root "$CONTAINER" -- sh -c "
+          mkdir -p /etc/environment.d
+          echo 'PATH=/opt/ghc/bin:/opt/hls/bin:/opt/cabal:/opt/stack${PATH:+:$PATH}' > /etc/environment.d/ghcup.conf
+          "
 
       - run: |
-          buildah run "$CONTAINER" -- stack config set system-ghc --global true
-          buildah run "$CONTAINER" -- stack config set install-ghc --global false
+          buildah run "$CONTAINER" -- sh -c "
+          stack config set system-ghc --global true
+          stack config set install-ghc --global false
+          "
 
       - run: |
           buildah run --user root:root "$CONTAINER" -- rm -rf /root/.ghcup
