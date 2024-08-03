@@ -67,7 +67,7 @@ jobs:
       - run: |
           OLDPATH=$(buildah run "$CONTAINER" -- printenv PATH)
           NEWPATH="/opt/ghc/bin:/opt/hls/bin:/opt/cabal:/opt/stack${OLDPATH:+:$OLDPATH}"
-          buildah config --env PATH "$NEWPATH" "$CONTAINER"
+          buildah config --env PATH="$NEWPATH" "$CONTAINER"
 
       - run: |
           buildah run "$CONTAINER" -- sh -c "
